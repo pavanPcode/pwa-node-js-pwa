@@ -1,0 +1,84 @@
+use [DB_A50D85_RCStd];
+
+CREATE TABLE [ScreenOperations](
+	[Id] [int] NOT NULL,
+	[TableName] [varchar](50) NOT NULL,
+	[OpText] [varchar](15) NOT NULL,
+	[SQLQuery] [varchar](max) NULL,
+	[IsActive] [bit] NOT NULL,
+ CONSTRAINT [PK_ScreenOperations] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+
+ALTER TABLE [ScreenOperations] ADD  DEFAULT ((1)) FOR [IsActive]
+GO
+
+---------------------------------------------------------------------------------------------------
+
+CREATE PROCEDURE prod.[SP_ScreenOperations]
+    @OperationId INT,
+    @JsonData NVARCHAR(MAX),
+    @ResultMessage NVARCHAR(MAX) OUTPUT,
+    @STATUS NVARCHAR(MAX) OUTPUT 
+AS
+BEGIN
+    DECLARE @FinalQuery NVARCHAR(MAX)
+    DECLARE @ErrorMessage NVARCHAR(MAX)
+    
+
+    SET @ResultMessage = ''
+    SET @STATUS = 'Success'
+
+
+    SELECT @FinalQuery = SQLQuery FROM [ScreenOperations] WHERE Id = @OperationId
+
+    PRINT @FinalQuery
+
+    BEGIN TRY
+
+        DECLARE @ParsedData TABLE (ColumnName NVARCHAR(255), ColumnValue NVARCHAR(MAX))
+
+        INSERT INTO @ParsedData (ColumnName, ColumnValue)
+        SELECT [key], [value]
+        FROM OPENJSON(@JsonData)
+
+        DECLARE @ColumnName NVARCHAR(255)
+        DECLARE @ColumnValue NVARCHAR(MAX)
+
+        DECLARE cursorData CURSOR FOR
+        SELECT ColumnName, ColumnValue FROM @ParsedData
+
+        OPEN cursorData
+        FETCH NEXT FROM cursorData INTO @ColumnName, @ColumnValue
+
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            PRINT @ColumnName
+            PRINT @ColumnValue
+
+
+            SET @FinalQuery = REPLACE(@FinalQuery, '@' + @ColumnName, @ColumnValue)
+
+            FETCH NEXT FROM cursorData INTO @ColumnName, @ColumnValue
+        END
+
+        CLOSE cursorData
+        DEALLOCATE cursorData
+
+        PRINT @FinalQuery
+
+
+        EXEC sp_executesql @FinalQuery
+        SET @ResultMessage = 'Query executed successfully.'
+    END TRY
+    BEGIN CATCH
+
+        SET @ErrorMessage = ERROR_MESSAGE()
+        SET @ResultMessage = 'Error executing query: ' + @ErrorMessage
+        SET @STATUS = 'Failure'
+    END CATCH
+END
+GO
